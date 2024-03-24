@@ -1,7 +1,7 @@
 {
   "name": "create-regolith-addon",
   "description": "A better alternative to `regolith init`",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "author": "Shawn Bhumbla",
   "license": "ISC",
   "repository": {

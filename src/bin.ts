@@ -1,7 +1,5 @@
 #!/usr/bin/env node
 
-//TODO: documentation
-
 import { program } from "@commander-js/extra-typings";
 import inquirer from "inquirer";
 import * as fs from "fs";
