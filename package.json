@@ -9,6 +9,9 @@
   },
   "readme": "https://github.com/Fluffyalien1422/create-regolith-addon#readme",
   "type": "module",
+  "files": [
+    "dist"
+  ],
   "bin": {
     "create-regolith-addon": "dist/bin.js"
   },
