@@ -12,6 +12,7 @@
   "files": [
     "dist"
   ],
+  "main": "dist/bin.js",
   "bin": {
     "create-regolith-addon": "dist/bin.js"
   },
