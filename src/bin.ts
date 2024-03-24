@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+//TODO: documentation
+
 import { program } from "@commander-js/extra-typings";
 import inquirer from "inquirer";
 import * as fs from "fs";
@@ -97,14 +99,14 @@ function initProject(promptResponses: PromptResponses): void {
             prod: {
               export: {
                 target: "local",
-                filters: useScripting
-                  ? [
-                      {
-                        filter: "build_scripts_prod",
-                      },
-                    ]
-                  : [],
               },
+              filters: useScripting
+                ? [
+                    {
+                      filter: "build_scripts_prod",
+                    },
+                  ]
+                : [],
             },
           },
         },
