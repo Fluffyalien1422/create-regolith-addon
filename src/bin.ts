@@ -6,6 +6,7 @@ import * as path from "path";
 import { inspect } from "util";
 import * as uuid from "uuid";
 import chalk from "chalk";
+import { VERSION } from "./constants.js";
 
 interface PromptResponses {
   projectName: string;
@@ -349,7 +350,7 @@ function initProject(promptResponses: PromptResponses): void {
 program
   .name("create-regolith-addon")
   .description("A better alternative to `regolith init`")
-  .version("1.0.0")
+  .version(VERSION)
   .action(async () => {
     const promptResponses = await inquirer.prompt<PromptResponses>([
       {

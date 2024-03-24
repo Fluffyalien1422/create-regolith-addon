@@ -1,7 +1,7 @@
 {
   "name": "create-regolith-addon",
   "description": "A better alternative to `regolith init`",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Shawn Bhumbla",
   "license": "ISC",
   "repository": {
@@ -9,7 +9,7 @@
   },
   "readme": "https://github.com/Fluffyalien1422/create-regolith-addon#readme",
   "type": "module",
-  "main": "dist/index.js",
+  "bin": "./dist/bin.js",
   "scripts": {
     "format": "prettier -w .",
     "lint": "eslint .",
