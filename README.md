@@ -4,7 +4,7 @@ A better alternative to `regolith init`.
 
 **See the [Regolith website](https://bedrock-oss.github.io/regolith/) for more information.**
 
-![Demo image](demo.png)
+![Demo image](https://raw.githubusercontent.com/Fluffyalien1422/create-regolith-addon/main/demo.png)
 
 ## Get Started
 

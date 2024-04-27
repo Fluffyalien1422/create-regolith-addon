@@ -15,11 +15,16 @@ interface PromptResponses {
   includeRp: boolean;
   targetVersion: string;
   scriptingLanguage: "js" | "ts" | "none";
+  includeLocalFilters?: boolean;
   includeEslint?: boolean;
   includePrettier: boolean;
 }
 
-function initProject(promptResponses: PromptResponses): void {
+interface Options {
+  dry?: true;
+}
+
+function initProject(promptResponses: PromptResponses, options: Options): void {
   // replace illegal characters with '-'
   // dots are not illegal in paths, but illegal here so we don't have to check for file extensions when checking for reserved file names on windows
   const basePath = promptResponses.projectName.replace(
@@ -34,8 +39,21 @@ function initProject(promptResponses: PromptResponses): void {
     );
   }
 
-  log.makingDir(basePath);
-  fs.mkdirSync(basePath);
+  function writeFile(path_: string, data: string): void {
+    log.writingFile(path_);
+    if (!options.dry) {
+      fs.writeFileSync(path_, data);
+    }
+  }
+
+  function makeDir(path_: string): void {
+    log.makingDir(path_);
+    if (!options.dry) {
+      fs.mkdirSync(path_);
+    }
+  }
+
+  makeDir(basePath);
 
   const useScripting = promptResponses.scriptingLanguage !== "none";
   const useTs = promptResponses.scriptingLanguage === "ts";
@@ -50,12 +68,10 @@ function initProject(promptResponses: PromptResponses): void {
   ).map((v) => Number(v));
 
   const gitIgnorePath = path.join(basePath, ".gitignore");
-  log.writingFile(gitIgnorePath);
-  fs.writeFileSync(gitIgnorePath, "/build\n/.regolith\n/node_modules");
+  writeFile(gitIgnorePath, "/build\n/.regolith\nnode_modules");
 
   const configPath = path.join(basePath, "config.json");
-  log.writingFile(configPath);
-  fs.writeFileSync(
+  writeFile(
     configPath,
     JSON.stringify(
       {
@@ -71,14 +87,28 @@ function initProject(promptResponses: PromptResponses): void {
           dataPath: "./packs/data",
           filterDefinitions: useScripting
             ? {
-                build_scripts_dev: {
+                build_scripts: {
                   runWith: "shell",
-                  command: `npx esbuild ./BP/scripts/${indexScriptName} --outfile=./BP/scripts/__bundle.js`,
+                  command: `npx esbuild BP/scripts/${indexScriptName} --outfile=BP/scripts/__bundle.js --bundle --format=esm --external:@minecraft/common --external:@minecraft/debug-utilities --external:@minecraft/server --external:@minecraft/server-*`,
                 },
-                build_scripts_prod: {
+                prod_finish_up_build_scripts: {
                   runWith: "shell",
-                  command: `npx esbuild ./BP/scripts/${indexScriptName} --minify --outfile=./BP/scripts/__bundle.js; rm ./BP/scripts/*.ts`,
+                  command:
+                    "npx terser BP/scripts/__bundle.js --module -cmo BP/scripts/__bundle.js; Remove-Item BP/scripts/* -Recurse -Exclude __bundle.js",
                 },
+                ...(promptResponses.includeLocalFilters
+                  ? {
+                      example_filter: useTs
+                        ? {
+                            runWith: "shell",
+                            command: "npm run tsx filters/example_filter",
+                          }
+                        : {
+                            runWith: "nodejs",
+                            script: "filters/example_filter/index.js",
+                          },
+                    }
+                  : {}),
               }
             : {},
           profiles: {
@@ -89,7 +119,7 @@ function initProject(promptResponses: PromptResponses): void {
               filters: useScripting
                 ? [
                     {
-                      filter: "build_scripts_dev",
+                      filter: "build_scripts",
                     },
                   ]
                 : [],
@@ -98,13 +128,18 @@ function initProject(promptResponses: PromptResponses): void {
               export: {
                 target: "local",
               },
-              filters: useScripting
-                ? [
-                    {
-                      filter: "build_scripts_prod",
-                    },
-                  ]
-                : [],
+              filters: [
+                {
+                  profile: "default",
+                },
+                ...(useScripting
+                  ? [
+                      {
+                        filter: "prod_finish_up_build_scripts",
+                      },
+                    ]
+                  : []),
+              ],
             },
           },
         },
@@ -119,10 +154,10 @@ function initProject(promptResponses: PromptResponses): void {
 
   if (useScripting) {
     packageDevDependencies.esbuild = "^0.20.2";
+    packageDevDependencies.terser = "^5.30.3";
   }
   if (promptResponses.includeEslint) {
     packageDevDependencies.eslint = "^8.57.0";
-    packageScripts.lint = "eslint .";
     if (useTs) {
       packageDevDependencies["@typescript-eslint/eslint-plugin"] = "^7.3.1";
       packageDevDependencies["@typescript-eslint/parser"] = "^7.3.1";
@@ -130,12 +165,37 @@ function initProject(promptResponses: PromptResponses): void {
   }
   if (promptResponses.includePrettier) {
     packageDevDependencies.prettier = "^3.2.5";
-    packageScripts.format = "prettier -w .";
+    packageScripts.fmt = "prettier . -w";
+  }
+
+  if (useTs || promptResponses.includeEslint) {
+    const commands = [];
+
+    if (promptResponses.includeEslint) {
+      commands.push("eslint .");
+    }
+
+    if (useTs) {
+      commands.push("tsc");
+      if (promptResponses.includeLocalFilters) {
+        commands.push("tsc -p filters");
+      }
+    }
+
+    packageScripts.check = commands.join(" && ");
+
+    if (promptResponses.includePrettier) {
+      packageScripts["fmt-check"] = "npm run fmt && npm run check";
+    }
+  }
+
+  if (useTs && promptResponses.includeLocalFilters) {
+    packageDevDependencies.tsx = "^4.7.2";
+    packageScripts.tsx = "tsx";
   }
 
   const packageJsonPath = path.join(basePath, "package.json");
-  log.writingFile(packageJsonPath);
-  fs.writeFileSync(
+  writeFile(
     packageJsonPath,
     JSON.stringify(
       {
@@ -151,8 +211,7 @@ function initProject(promptResponses: PromptResponses): void {
 
   if (promptResponses.includeEslint) {
     const eslintrcPath = path.join(basePath, ".eslintrc.cjs");
-    log.writingFile(eslintrcPath);
-    fs.writeFileSync(
+    writeFile(
       eslintrcPath,
       "module.exports = " +
         JSON.stringify(
@@ -161,23 +220,44 @@ function initProject(promptResponses: PromptResponses): void {
               browser: true,
               es2021: true,
             },
-            extends: [
-              "eslint:recommended",
-              ...(useTs
-                ? [
-                    "plugin:@typescript-eslint/strict-type-checked",
-                    "plugin:@typescript-eslint/stylistic-type-checked",
-                  ]
-                : []),
-            ],
-            parser: useTs ? "@typescript-eslint/parser" : undefined,
+            extends: ["eslint:recommended"],
             parserOptions: {
               ecmaVersion: "latest",
               sourceType: "module",
-              project: useTs ? "./tsconfig.json" : undefined,
+              project: useTs
+                ? [
+                    "./tsconfig.json",
+                    ...(promptResponses.includeLocalFilters
+                      ? ["./filters/tsconfig.json"]
+                      : []),
+                  ]
+                : undefined,
             },
-            plugins: useTs ? ["@typescript-eslint"] : undefined,
-            ignorePatterns: ["/*", "!/packs/BP/scripts"],
+            overrides: [
+              {
+                files: ["*.cjs"],
+                env: {
+                  node: true,
+                },
+                parserOptions: {
+                  sourceType: "script",
+                },
+              },
+              ...(useTs
+                ? [
+                    {
+                      files: ["*.ts"],
+                      extends: [
+                        "plugin:@typescript-eslint/strict-type-checked",
+                        "plugin:@typescript-eslint/stylistic-type-checked",
+                      ],
+                      parser: "@typescript-eslint/parser",
+                      plugins: ["@typescript-eslint"],
+                      rules: {},
+                    },
+                  ]
+                : []),
+            ],
           },
           undefined,
           4,
@@ -187,19 +267,20 @@ function initProject(promptResponses: PromptResponses): void {
 
   if (promptResponses.includePrettier) {
     const prettierrcPath = path.join(basePath, ".prettierrc");
-    log.writingFile(prettierrcPath);
-    fs.writeFileSync(prettierrcPath, "{}");
+    writeFile(prettierrcPath, "{}");
   }
 
   if (useTs) {
     const tsconfigPath = path.join(basePath, "tsconfig.json");
-    log.writingFile(tsconfigPath);
-    fs.writeFileSync(
+    writeFile(
       tsconfigPath,
       JSON.stringify(
         {
           include: ["./packs/BP/scripts"],
           compilerOptions: {
+            paths: {
+              "@/*": ["./packs/*"],
+            },
             forceConsistentCasingInFileNames: true,
             strict: true,
             target: "es2022",
@@ -216,12 +297,10 @@ function initProject(promptResponses: PromptResponses): void {
   }
 
   const packsPath = path.join(basePath, "packs");
-  log.makingDir(packsPath);
-  fs.mkdirSync(packsPath);
+  makeDir(packsPath);
 
   const bpPath = path.join(packsPath, "BP");
-  log.makingDir(bpPath);
-  fs.mkdirSync(bpPath);
+  makeDir(bpPath);
 
   const bpUuid = uuid.v4();
   const rpUuid = uuid.v4();
@@ -264,42 +343,34 @@ function initProject(promptResponses: PromptResponses): void {
   };
 
   const bpManifestPath = path.join(bpPath, "manifest.json");
-  log.writingFile(bpManifestPath);
-  fs.writeFileSync(bpManifestPath, JSON.stringify(bpManifest, undefined, 4));
+  writeFile(bpManifestPath, JSON.stringify(bpManifest, undefined, 4));
 
   if (useScripting) {
     const bpScriptsPath = path.join(bpPath, "scripts");
-    log.makingDir(bpScriptsPath);
-    fs.mkdirSync(bpScriptsPath);
+    makeDir(bpScriptsPath);
 
     const indexScriptPath = path.join(bpScriptsPath, indexScriptName);
-    log.writingFile(indexScriptPath);
-    fs.writeFileSync(indexScriptPath, 'console.log("Hello, Minecraft!");');
+    writeFile(indexScriptPath, 'console.log("Hello, Minecraft!");');
   }
 
   const bpTextsPath = path.join(bpPath, "texts");
-  log.makingDir(bpTextsPath);
-  fs.mkdirSync(bpTextsPath);
+  makeDir(bpTextsPath);
 
   const enUsLangContent = `pack.name=${promptResponses.projectName}\npack.description=${promptResponses.projectName}`;
   const languagesJsonContent = '["en_US"]';
 
   const bpEnUsLangPath = path.join(bpTextsPath, "en_US.lang");
-  log.writingFile(bpEnUsLangPath);
-  fs.writeFileSync(bpEnUsLangPath, enUsLangContent);
+  writeFile(bpEnUsLangPath, enUsLangContent);
 
   const bpLanguagesJsonPath = path.join(bpTextsPath, "languages.json");
-  log.writingFile(bpLanguagesJsonPath);
-  fs.writeFileSync(bpLanguagesJsonPath, languagesJsonContent);
+  writeFile(bpLanguagesJsonPath, languagesJsonContent);
 
   const dataPath = path.join(packsPath, "data");
-  log.makingDir(dataPath);
-  fs.mkdirSync(dataPath);
+  makeDir(dataPath);
 
   const rpPath = path.join(packsPath, "RP");
   if (promptResponses.includeRp) {
-    log.makingDir(rpPath);
-    fs.mkdirSync(rpPath);
+    makeDir(rpPath);
   }
 
   if (promptResponses.includeRp) {
@@ -328,32 +399,83 @@ function initProject(promptResponses: PromptResponses): void {
     };
 
     const rpManifestPath = path.join(rpPath, "manifest.json");
-    log.writingFile(rpManifestPath);
-    fs.writeFileSync(rpManifestPath, JSON.stringify(rpManifest, undefined, 4));
+    writeFile(rpManifestPath, JSON.stringify(rpManifest, undefined, 4));
 
     const rpTextsPath = path.join(rpPath, "texts");
-    log.makingDir(rpTextsPath);
-    fs.mkdirSync(rpTextsPath);
+    makeDir(rpTextsPath);
 
     const rpEnUsLangPath = path.join(rpTextsPath, "en_US.lang");
-    log.writingFile(rpEnUsLangPath);
-    fs.writeFileSync(rpEnUsLangPath, enUsLangContent);
+    writeFile(rpEnUsLangPath, enUsLangContent);
 
     const rpLanguagesJsonPath = path.join(rpTextsPath, "languages.json");
-    log.writingFile(rpLanguagesJsonPath);
-    fs.writeFileSync(rpLanguagesJsonPath, languagesJsonContent);
+    writeFile(rpLanguagesJsonPath, languagesJsonContent);
+
+    if (promptResponses.includeLocalFilters) {
+      const filtersPath = path.join(basePath, "filters");
+      makeDir(filtersPath);
+
+      const filtersPackageJsonPath = path.join(filtersPath, "package.json");
+      writeFile(
+        filtersPackageJsonPath,
+        JSON.stringify(
+          {
+            private: true,
+            type: "module",
+          },
+          undefined,
+          4,
+        ),
+      );
+
+      if (useTs) {
+        const filtersTsconfigPath = path.join(filtersPath, "tsconfig.json");
+        writeFile(
+          filtersTsconfigPath,
+          JSON.stringify(
+            {
+              extends: "../tsconfig.json",
+              include: ["."],
+            },
+            undefined,
+            4,
+          ),
+        );
+
+        const filtersCommonTs = path.join(filtersPath, "common.ts");
+        writeFile(filtersCommonTs, 'export const TMP_DIR = ".regolith/tmp";');
+      }
+
+      const exampleFilterPath = path.join(filtersPath, "example_filter");
+      makeDir(exampleFilterPath);
+
+      const exampleFilterIndexPath = path.join(
+        exampleFilterPath,
+        indexScriptName,
+      );
+      writeFile(
+        exampleFilterIndexPath,
+        useTs
+          ? '// NOTE: this script will **not** run relative to the `.regolith/tmp` directory.\n// Use the `TMP_DIR` constant from `filters/common.ts` to access it instead.\n\nconsole.log("Hello, World!");'
+          : 'console.log("Hello, World!");',
+      );
+    }
   }
 
   log.success(
     `created a new add-on at ${chalk.yellow(path.resolve(basePath))}`,
   );
+
+  if (options.dry) {
+    log.success("completed dry run");
+  }
 }
 
 program
   .name("create-regolith-addon")
   .description("A better alternative to `regolith init`")
   .version(VERSION)
-  .action(async () => {
+  .option("--dry", "dry run")
+  .action(async (options) => {
     const promptResponses = await inquirer.prompt<PromptResponses>([
       {
         type: "input",
@@ -415,6 +537,12 @@ program
       },
       {
         type: "confirm",
+        name: "includeLocalFilters",
+        message: "Set up a subdirectory for local Node.js filters?",
+        when: (answers): boolean => answers.scriptingLanguage !== "none",
+      },
+      {
+        type: "confirm",
         name: "includeEslint",
         message: "Include ESLint to find script problems?",
         when: (answers): boolean => answers.scriptingLanguage !== "none",
@@ -427,7 +555,7 @@ program
     ]);
 
     try {
-      initProject(promptResponses);
+      initProject(promptResponses, options);
     } catch (e) {
       if (e instanceof Error) {
         log.error(e.message);
